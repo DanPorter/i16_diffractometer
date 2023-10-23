@@ -41,9 +41,9 @@ def bmatrix(a, b=None, c=None, alpha=90., beta=90., gamma=90.):
     alpha2 = np.deg2rad(beta)
     alpha3 = np.deg2rad(gamma)
  
-    beta1 = np.arccos( (np.cos(alpha2)*np.cos(alpha3)-np.cos(alpha1))/(np.sin(alpha2)*np.sin(alpha3)))
-    beta2 = np.arccos( (np.cos(alpha1)*np.cos(alpha3)-np.cos(alpha2))/(np.sin(alpha1)*np.sin(alpha3)))
-    beta3 = np.arccos( (np.cos(alpha1)*np.cos(alpha2)-np.cos(alpha3))/(np.sin(alpha1)*np.sin(alpha2)))
+    beta1 = np.arccos((np.cos(alpha2)*np.cos(alpha3)-np.cos(alpha1))/(np.sin(alpha2)*np.sin(alpha3)))
+    beta2 = np.arccos((np.cos(alpha1)*np.cos(alpha3)-np.cos(alpha2))/(np.sin(alpha1)*np.sin(alpha3)))
+    beta3 = np.arccos((np.cos(alpha1)*np.cos(alpha2)-np.cos(alpha3))/(np.sin(alpha1)*np.sin(alpha2)))
  
     b1 = 1 / (a * np.sin(alpha2) * np.sin(beta3))
     b2 = 1 / (b * np.sin(alpha3) * np.sin(beta1))
@@ -128,7 +128,13 @@ def rotmatrix_intrinsic(alpha, beta, gamma):
 def rotmatrix_diffractometer(phi, chi, eta, mu):
     """
     an intrinsic rotation using You et al. 4S+2D diffractometer
-    Z = MU.ETA.CHI.PHI
+        mu right-handed rotation about x
+        eta left-handed rotation about z'
+        chi right-handed rotation about y''
+        phi left-handed rotation about z'''
+        Angles in degrees
+      Z = MU.ETA.CHI.PHI
+      V' = Z.V || rot_vec = np.dot(r, vec)
     :param phi: float left-handed rotation about z''' angle in degrees
     :param chi: float right-handed rotation about y'' angle in degrees
     :param eta: float left-handed rotation about z' angle in degrees
@@ -147,10 +153,26 @@ def rotmatrix_diffractometer(phi, chi, eta, mu):
     se = np.sin(eta)
     cm = np.cos(mu)
     sm = np.sin(mu)
-    return np.array([[ce*cp*cc-se*sp, ce*sp*cc+se*cp, ce*sc], [sm*cp*sc+cm*(-se*cp*cc-ce*sp), sm*sp*sc+cm*(ce*cp-se*sp*cc), -se*cm*sc-sm*cc], [sm*(-se*cp*cc-ce*sp)-cm*cp*sc, sm*(ce*cp-se*sp*cc)-cm*sp*sc, cm*cc-se*sm*sc]])
- 
- 
- 
+    r = np.array([
+        [
+            ce * cp * cc - se * sp,
+            ce * sp * cc + se * cp,
+            ce * sc
+        ],
+        [
+            sm * cp * sc + cm * (-se * cp * cc - ce * sp),
+            sm * sp * sc + cm * (ce * cp - se * sp * cc),
+            -se * cm * sc - sm * cc
+        ],
+        [
+            sm * (-se * cp * cc - ce * sp) - cm * cp * sc,
+            sm * (ce * cp - se * sp * cc) - cm * sp * sc,
+            cm * cc - se * sm * sc
+        ]
+    ])
+    return r
+
+
 def diffractometer(vec, phi, chi, eta, mu):
     """
     Perform an intrinsic rotation using You et al. 4S+2D diffractometer
@@ -173,16 +195,16 @@ def diffractometer(vec, phi, chi, eta, mu):
     return np.dot(r, vec)
  
  
-def detector_wavevector(delta, gamma, wavelength):
+def detector_wavevector(delta, gamma, wavelength_a):
     """
     Calculate wavevector in diffractometer axis using detector angles
     :param delta: float angle in degrees in vertical direction (about diff-z)
     :param gamma: float angle in degrees in horizontal direction (about diff-x)
-    :param wavelength: float wavelength in A
+    :param wavelength_a: float wavelength in A
     :return: [1*3] wavevector position in A-1 == kf - ki
     """
  
-    k = 2 * np.pi / wavelength
+    k = 2 * np.pi / wavelength_a
     delta = np.deg2rad(delta)
     gamma = np.deg2rad(gamma)
     sd = np.sin(delta)
