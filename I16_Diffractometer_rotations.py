@@ -24,6 +24,9 @@ def bmatrix(a, b=None, c=None, alpha=90., beta=90., gamma=90.):
     The B matrix is related to the reciprocal basis vectors:
         (astar, bstar, cstar) = 2 * np.pi * B.T
     Where cstar is defined along the z axis
+
+    The B matrix is related to the real-space unit vectors:
+        (A, B, C) = B^-1 = inv(B)
  
     :param a: lattice parameter a in Anstroms
     :param b: lattice parameter b in Anstroms
@@ -63,7 +66,7 @@ def bmatrix(a, b=None, c=None, alpha=90., beta=90., gamma=90.):
  
 def rotmatrix_z(phi):
     """
-    Generate diffractometer rotation matrix about z-axis (right handed)
+    Generate rotation matrix of phi Deg about z-axis (right handed)
     Equivalent to YAW in the Tain-Bryan convention
     Equivalent to -phi, -eta, -delta in You et al. diffractometer convention (left handed)
     :param phi: float angle in degrees
@@ -77,7 +80,7 @@ def rotmatrix_z(phi):
  
 def rotmatrix_y(chi):
     """
-    Generate diffractometer rotation matrix chi about y-axis (right handed)
+    Generate rotation matrix of chi Deg about y-axis (right handed)
     Equivalent to PITCH in the Tain-Bryan convention
     Equivalent to chi in You et al. diffractometer convention (right handed)
     :param chi: float angle in degrees
@@ -91,7 +94,7 @@ def rotmatrix_y(chi):
  
 def rotmatrix_x(mu):
     """
-    Generate diffractometer rotation matrix mu about x-axis (right handed)
+    Generate rotation matrix of mu Deg about x-axis (right handed)
     Equivalent to ROLL in the Tain-Bryan convention
     Equivalent to mu in You et al. diffractometer convention (right handed)
     :param mu: float angle in degrees
