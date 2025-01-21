@@ -20,6 +20,11 @@ from I16_Diffractometer_rotations import (
     norm_vector, rotation_t_matrix, translation_t_matrix, bmatrix, transform_by_t_matrix
 )
 
+METERS = {  # conversion to meters
+    'km': 1e3, 'm': 1, 'cm': 0.1, 'mm': 1e-3,
+    'um': 1e-6, 'μm': 1e-6, 'nm': 1e-9,
+    'A': 1e-10, 'Å': 1e-10
+}
 
 NX_CLASS = 'NX_class'
 NX_DEFAULT = 'default'
@@ -88,15 +93,12 @@ def get_depends_on(path: str, hdf_file: h5py.File) -> str:
     else:
         return '.'
 
-    do_path = do_path.decode() if isinstance(do_path, bytes) else do_path
     if do_path in hdf_file:
-        return do_path
-    elif do_path in obj.parent:
-        return obj.parent[do_path].name
-    elif do_path in obj.parent.parent:
-        return obj.parent.parent[do_path].name  # TODO: make this less horrible
-    else:
-        return f"{path}/{do_path.strip('/')}"  # relative path
+        return do_path.decode() if isinstance(do_path, bytes) else do_path
+    # walk up tree to find relative file path
+    while (isinstance(obj, h5py.Dataset) or do_path not in obj) and obj != obj.file:
+        obj = obj.parent
+    return obj[do_path].name if do_path in obj else '.'
 
 
 def get_dataset_value(path: str, group: h5py.Group | h5py.File, default):
@@ -119,7 +121,7 @@ def nx_depends_on_chain(path: str, hdf_file: h5py.File) -> List[str]:
     """
     Returns list of paths in a transformation chain, linked by 'depends_on'
     :param path: hdf path of initial dataset or group
-    :param hdf_file:
+    :param hdf_file: Nexus file object
     :return:
     """
     depends_on = get_depends_on(path, hdf_file)
@@ -132,10 +134,10 @@ def nx_depends_on_chain(path: str, hdf_file: h5py.File) -> List[str]:
 
 def nx_direction(path: str, hdf_file: h5py.File) -> np.ndarray:
     """
-    Return the direction from a dataset
+    Return a unit-vector direction from a dataset
     :param path: hdf path of NXtransformation path or component group with 'depends_on'
-    :param hdf_file: Nxus file object
-    :return:
+    :param hdf_file: Nexus file object
+    :return: unit-vector array
     """
     depends_on = get_depends_on(path, hdf_file)
     if depends_on == '.':
@@ -191,14 +193,25 @@ def nx_transformations(path: str, index: int, hdf_file: h5py.File, print_output=
     if transformation_type == NX_TROT:
         if print_output:
             print(f"Rotating about {vector} by {value} {units}  | {path}")
-        matrix = rotation_t_matrix(value, units, vector, offset)
+        if units == 'deg':
+            value = np.deg2rad(value)
+        elif units != 'rad':
+            value = np.deg2rad(value)
+            print(f"Warning: Incorrect rotation units: '{units}'")
+        matrix = rotation_t_matrix(value, vector, offset)
     elif transformation_type == NX_TTRAN:
         if print_output:
             print(f"Translating along {vector} by {value} {units}  | {path}")
-        matrix = translation_t_matrix(value, units, vector, offset)
+        if units in METERS:
+            unit_multiplier = METERS[units]
+        else:
+            unit_multiplier = 1.0
+            print(f"Warning: unknown translation untis: {units}")
+        value = value * unit_multiplier * 1000  # distance in mm
+        matrix = translation_t_matrix(value, vector, offset)
     else:
         if print_output:
-            print(f"transformation type of '{path}' not recognized: {transformation_type}")
+            print(f"transformation type of '{path}' not recognized: '{transformation_type}'")
         matrix = np.eye(4)
 
     if depends_on == '.':  # end chain
@@ -243,8 +256,10 @@ def nx_beam_energy(beam: h5py.Group):
         dataset = beam[NX_WL]
         units = dataset.attrs.get(NX_UNITS, b'nm').decode()
         wl = dataset[()]
-        if units == 'nm':
-            wl = 10 * wl  # wavelength in Angstroms
+        if units.lower() in METERS:
+            wl = wl * METERS[units] * 1e-10  # wavelength in Angstroms
+        else:
+            print(f"Warning: unknown translation untis: {units}")
         return photon_energy(wl), wl
     elif NX_EN in beam:
         dataset = beam[NX_WL]
@@ -255,6 +270,11 @@ def nx_beam_energy(beam: h5py.Group):
         return en, photon_wavelength(en)
     else:
         raise KeyError(f"{beam} contains no '{NX_WL}' or '{NX_EN}'")
+
+
+###########################################################################
+###########################################################################
+###########################################################################
 
 
 class NXBeam:
@@ -431,7 +451,7 @@ class NXDetector:
         self.path = path
         self.detector = hdf_file[path]
         self.size = nx_transformations_max_size(path, hdf_file)
-        self.position = nx_transform_vector((0, 0, 0), path, self.size // 2, hdf_file)
+        self.position = nx_transform_vector((0, 0, 0), path, self.size // 2, hdf_file).squeeze()
 
         self.modules = [
             NXDetectorModule(f"{self.path}/{p}", hdf_file)
@@ -458,6 +478,15 @@ class NXScan:
             for p, obj in self.instrument.items()
             if obj.attrs.get(NX_CLASS) == NX_DET.encode()
         ]
+        self.components = [
+            obj for obj in self.instrument.values()
+            if isinstance(obj, h5py.Group) and 'depends_on' in obj
+        ]
+        self.component_positions = {
+            obj.name.split('/')[-1]: nx_transform_vector((0, 0, 0), obj.name, 0, hdf_file).squeeze()
+            for obj in self.components
+        }
+        self.component_positions['sample'] = np.array([0, 0, 0])
 
         sample_obj = self.entry[nx_first_nxclass(self.entry, NX_SAMPLE)]
         self.sample = NXSsample(sample_obj.name, hdf_file)
@@ -496,6 +525,33 @@ class NXScan:
         :return: Q position in inverse Angstroms
         """
         return self.sample.hkl2q(hkl)
+
+    def plot_instrument(self):
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='3d')
+
+        instrument_name = get_dataset_value('name', self.instrument, 'no name')
+        max_distance = max([np.linalg.norm(position) for position in self.component_positions.values()])
+        max_position = max_distance * self.beam.direction
+
+        ax.plot([-max_position[0], 0], [-max_position[2], 0], [-max_position[1], 0], 'k-')  # beam
+        beam_cont = np.linalg.norm(self.detectors[0].position) * self.beam.direction
+        ax.plot([0, beam_cont[0]], [0, beam_cont[2]], [0, beam_cont[1]], 'k:')  # continued beam
+        # detectors
+        for detector in self.detectors:
+            pos = detector.position
+            ax.plot([0, pos[0]], [0, pos[2]], [0, pos[1]], 'k-')  # scattered beam
+        # components
+        for component, position in self.component_positions.items():
+            ax.plot(position[0], position[2], position[1], 'r+')
+            ax.text(position[0], position[2], position[1], s=component)
+
+        ax.set_xlabel('X [mm]')
+        ax.set_ylabel('Z [mm]')
+        ax.set_zlabel('Y [mm]')
+        ax.set_title(instrument_name)
+        # ax.set_aspect('equalxz')
+        fig.show()
 
     def plot_wavevectors(self):
         fig = plt.figure()
@@ -570,7 +626,6 @@ class NXScan:
 if __name__ == '__main__':
 
     f = r"1075689.nxs"
-    f = r"\\dc.diamond.ac.uk\dls\science\groups\das\ExampleData\NeXus\newnexuswriter2024\i16\i16_nexus_test_15Jan25\1075689.nxs"
 
     with h5py.File(f) as nxs:
         print('nx_transformations:')
@@ -582,9 +637,11 @@ if __name__ == '__main__':
         print('hkl:')
         print(scan.hkl(cen))
 
-        # scan.plot_wavevectors()
-        # scan.plot_hkl()
+        scan.plot_wavevectors()
+        scan.plot_hkl()
 
         print('s1 translation')
         print(nx_transform_vector([0,0,0], '/entry/instrument/s1', 0, nxs))
+
+        scan.plot_instrument()
 

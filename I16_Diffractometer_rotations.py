@@ -277,28 +277,21 @@ def rot_matrix(angle_rad: float, axis=(0, 0, 1)):
     return r
 
 
-def rotation_t_matrix(value=0.0, units='deg', vector=(0, 0, 1), offset=(0, 0, 0)):
+def rotation_t_matrix(value=0.0, vector=(0, 0, 1), offset=(0, 0, 0)):
     """
     Create 4x4 transformation matrix including a rotation
     """
     t = np.eye(4)
-    if units == 'deg':
-        value = np.deg2rad(value)
-    elif units != 'rad':
-        value = np.deg2rad(value)
-        # print(f"Warning: Incorrect rotation units: '{units}'")
     t[:3, :3] = rot_matrix(angle_rad=value, axis=vector)
     t[:3, 3] = offset
     return t
 
 
-def translation_t_matrix(value=0.0, units='mm', vector=(0, 0, 1), offset=(0, 0, 0)):
+def translation_t_matrix(value=0.0, vector=(0, 0, 1), offset=(0, 0, 0)):
     """
     Create 4x4 transformation matrix including a translation
     """
     t = np.eye(4)
-    if units != 'mm':
-        Warning(f"Unknown translation units: {units}")
     translation = value * np.reshape(vector, 3) + np.reshape(offset, 3)
     t[:3, 3] = translation
     return t
