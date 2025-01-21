@@ -314,6 +314,17 @@ class NXSsample:
     def __repr__(self):
         return f"NXSsample({self.sample})"
 
+    def hkl2q(self, hkl: Tuple[float, float, float] | np.ndarray):
+        """
+        Returns wavecector direction for given hkl
+        :param hkl: Miller indices, in units of reciprocal lattice vectors
+        :return: Q position in inverse Angstroms
+        """
+        hkl = np.reshape(hkl, (-1, 3))
+        z = self.transforms[0][:3, :3]
+        ub = 2 * np.pi * self.ub_matrix
+        return np.dot(z, np.dot(ub, hkl.T)).T
+
 
 class NXDetectorModule:
     """
@@ -413,6 +424,8 @@ class NXDetector:
         self.file = hdf_file
         self.path = path
         self.detector = hdf_file[path]
+        self.size = nx_transformations_max_size(path, hdf_file)
+        self.position = nx_transform_vector((0, 0, 0), path, self.size // 2, hdf_file)
 
         self.modules = [
             NXDetectorModule(f"{self.path}/{p}", hdf_file)
@@ -470,22 +483,30 @@ class NXScan:
         hphi = np.dot(inv_z, q)
         return np.dot(inv_ub, hphi).T
 
+    def hkl2q(self, hkl: Tuple[float, float, float] | np.ndarray):
+        """
+        Returns wavecector direction for given hkl
+        :param hkl: Miller indices, in units of reciprocal lattice vectors
+        :return: Q position in inverse Angstroms
+        """
+        return self.sample.hkl2q(hkl)
+
     def plot_wavevectors(self):
         fig = plt.figure()
         ax = fig.add_subplot(projection='3d')
 
-        pixel_centre = tuple([i // 2 for i in scan.shape()])
-        ki = scan.beam.incident_wavevector
-        detector_module = scan.detectors[0].modules[0]
-        kf = detector_module.pixel_wavevector(pixel_centre, scan.beam.wl)
+        pixel_centre = tuple([i // 2 for i in self.shape()])
+        ki = self.beam.incident_wavevector
+        detector_module = self.detectors[0].modules[0]
+        kf = detector_module.pixel_wavevector(pixel_centre, self.beam.wl)
         q = kf - ki
 
         ax.plot([-ki[0], 0], [-ki[2], 0], [-ki[1], 0], '-k')
         ax.plot([0, kf[0]], [0, kf[2]], [0, kf[1]], '-k')
         ax.plot([0, q[0]], [0, q[2]], [0, q[1]], '-r')
 
-        shape = scan.shape()
-        wl = scan.beam.wl
+        shape = self.shape()
+        wl = self.beam.wl
         for frame in range(shape[0]):
             corners = np.vstack([
                 detector_module.pixel_wavevector((frame, 0, 0), wl),  # module origin
@@ -498,10 +519,19 @@ class NXScan:
             corners_q = corners - ki
             ax.plot(corners_q[:, 0], corners_q[:, 2], corners_q[:, 1], '-r')
 
+        # plot Reciprocal lattice
+        astar, bstar, cstar = self.hkl2q(np.eye(3))
+        ax.plot([0, astar[0]], [0, astar[2]], [0, astar[1]], '-g')
+        ax.plot([0, bstar[0]], [0, bstar[2]], [0, bstar[1]], '-g')
+        ax.plot([0, cstar[0]], [0, cstar[2]], [0, cstar[1]], '-g')
+        ax.text(astar[0], astar[2], astar[1], s='a*')
+        ax.text(bstar[0], bstar[2], bstar[1], s='b*')
+        ax.text(cstar[0], cstar[2], cstar[1], s='c*')
+
         ax.set_xlabel('X')
         ax.set_ylabel('Z')
         ax.set_zlabel('Y')
-        ax.set_title(f"HKL: {scan.hkl(pixel_centre)}")
+        ax.set_title(f"HKL: {self.hkl(pixel_centre)}")
         ax.set_aspect('equal')
         fig.show()
 
@@ -509,9 +539,8 @@ class NXScan:
         fig = plt.figure()
         ax = fig.add_subplot(projection='3d')
 
-        shape = scan.shape()
+        shape = self.shape()
         pixel_centre = tuple([i // 2 for i in shape])
-        wl = scan.beam.wl
         for frame in range(shape[0]):
             corners = np.vstack([
                 self.hkl((frame, 0, 0)),  # module origin
@@ -527,15 +556,14 @@ class NXScan:
         ax.set_xlabel('H')
         ax.set_ylabel('L')
         ax.set_zlabel('K')
-        ax.set_title(f"HKL: {scan.hkl(pixel_centre)}")
+        ax.set_title(f"HKL: {self.hkl(pixel_centre)}")
         ax.set_aspect('equal')
         fig.show()
 
 
 if __name__ == '__main__':
 
-    # f = r"C:\Users\grp66007\OneDrive - Diamond Light Source Ltd\DataAnalysis\Nexus\i16_nexus_test_10Dec24\1074513.nxs"
-    f = r"\\dc.diamond.ac.uk\dls\science\groups\das\ExampleData\NeXus\newnexuswriter2024\i16\i16_nexus_test_15Jan25\1075689.nxs"
+    f = r"1075689.nxs"
 
     with h5py.File(f) as nxs:
         print('nx_transformations:')
