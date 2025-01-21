@@ -27,6 +27,8 @@ NX_DEPON = 'depends_on'
 NX_VECTOR = 'vector'
 NX_OFFSET = 'offset'
 NX_TTYPE = 'transformation_type'
+NX_TROT = 'rotation'
+NX_TTRAN = 'translation'
 NX_UNITS = 'units'
 NX_WL = 'incident_wavelength'
 NX_EN = 'incident_energy'
@@ -89,8 +91,12 @@ def get_depends_on(path: str, hdf_file: h5py.File) -> str:
     do_path = do_path.decode() if isinstance(do_path, bytes) else do_path
     if do_path in hdf_file:
         return do_path
+    elif do_path in obj.parent:
+        return obj.parent[do_path].name
+    elif do_path in obj.parent.parent:
+        return obj.parent.parent[do_path].name  # TODO: make this less horrible
     else:
-        return f"{path}/{do_path}"  # relative path
+        return f"{path}/{do_path.strip('/')}"  # relative path
 
 
 def get_dataset_value(path: str, group: h5py.Group | h5py.File, default):
@@ -137,7 +143,7 @@ def nx_direction(path: str, hdf_file: h5py.File) -> np.ndarray:
     else:
         dataset = hdf_file[depends_on]
 
-    vector = np.asarray(dataset.attrs.get('vector', (0, 0, 0)))
+    vector = np.asarray(dataset.attrs.get(NX_VECTOR, (0, 0, 0)))
     return norm_vector(vector)
 
 
@@ -177,16 +183,16 @@ def nx_transformations(path: str, index: int, hdf_file: h5py.File, print_output=
     this_index = index if dataset.size > 1 else 0
     value = dataset[np.unravel_index(this_index, dataset.shape)]
 
-    transformation_type = dataset.attrs.get('transformation_type', b'').decode()
-    vector = np.array(dataset.attrs.get('vector', (1, 0, 0)))
-    offset = dataset.attrs.get('offset', (0, 0, 0))
-    units = dataset.attrs.get('units', b'').decode()
+    transformation_type = dataset.attrs.get(NX_TTYPE, b'').decode()
+    vector = np.array(dataset.attrs.get(NX_VECTOR, (1, 0, 0)))
+    offset = dataset.attrs.get(NX_OFFSET, (0, 0, 0))
+    units = dataset.attrs.get(NX_UNITS, b'').decode()
 
-    if transformation_type == 'rotation':
+    if transformation_type == NX_TROT:
         if print_output:
             print(f"Rotating about {vector} by {value} {units}  | {path}")
         matrix = rotation_t_matrix(value, units, vector, offset)
-    elif transformation_type == 'translation':
+    elif transformation_type == NX_TTRAN:
         if print_output:
             print(f"Translating along {vector} by {value} {units}  | {path}")
         matrix = translation_t_matrix(value, units, vector, offset)
@@ -235,14 +241,14 @@ def nx_beam_energy(beam: h5py.Group):
     """
     if NX_WL in beam:
         dataset = beam[NX_WL]
-        units = dataset.attrs.get('units', b'nm').decode()
+        units = dataset.attrs.get(NX_UNITS, b'nm').decode()
         wl = dataset[()]
         if units == 'nm':
             wl = 10 * wl  # wavelength in Angstroms
         return photon_energy(wl), wl
     elif NX_EN in beam:
         dataset = beam[NX_WL]
-        units = dataset.attrs.get('units', b'ev').decode()
+        units = dataset.attrs.get(NX_UNITS, b'ev').decode()
         en = dataset[()]
         if units.lower() == 'ev':
             en = en / 1000.  # wavelength in keV
@@ -272,14 +278,14 @@ class NXBeam:
         """
         if NX_WL in self.beam:
             dataset = self.beam[NX_WL]
-            units = dataset.attrs.get('units', b'nm').decode()
+            units = dataset.attrs.get(NX_UNITS, b'nm').decode()
             wl = dataset[()]
             if units == 'nm':
                 wl = 10 * wl  # wavelength in Angstroms
             return photon_energy(wl), wl
         elif NX_EN in self.beam:
             dataset = self.beam[NX_WL]
-            units = dataset.attrs.get('units', b'ev').decode()
+            units = dataset.attrs.get(NX_UNITS, b'ev').decode()
             en = dataset[()]
             if units.lower() == 'ev':
                 en = en / 1000.  # wavelength in keV
@@ -564,6 +570,7 @@ class NXScan:
 if __name__ == '__main__':
 
     f = r"1075689.nxs"
+    f = r"\\dc.diamond.ac.uk\dls\science\groups\das\ExampleData\NeXus\newnexuswriter2024\i16\i16_nexus_test_15Jan25\1075689.nxs"
 
     with h5py.File(f) as nxs:
         print('nx_transformations:')
@@ -575,6 +582,9 @@ if __name__ == '__main__':
         print('hkl:')
         print(scan.hkl(cen))
 
-        scan.plot_wavevectors()
-        scan.plot_hkl()
+        # scan.plot_wavevectors()
+        # scan.plot_hkl()
+
+        print('s1 translation')
+        print(nx_transform_vector([0,0,0], '/entry/instrument/s1', 0, nxs))
 
